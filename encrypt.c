@@ -8,6 +8,13 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
+
+void signal_handler(int s)
+{
+	printf("encryptor was killed\n");
+	exit(1);
+}
 
 int encrypt_files(const char* path, char key) {
   int status = 0;
@@ -20,20 +27,13 @@ int encrypt_files(const char* path, char key) {
   unsigned int sz_read = 0;
   unsigned int sz_write = 0;
   char* fdata = NULL;
-  char* abs_path = NULL;
+  char abs_path[PATH_MAX];
   dir = opendir(path);
   if (dir) {
-    abs_path = (char*)malloc(n*sizeof(char));
-    if (abs_path == NULL) {
-      status = errno;
-      printf("Memory allocation error, error code %d\n", status);
-      return status;
-    }
-
     while (entry = readdir(dir)) {
       sub_dir = NULL;
       fp = NULL;
-      memset(abs_path, 0, n);
+      memset(abs_path, 0, PATH_MAX);
       if ((entry->d_name[0] == '.' && strlen(entry->d_name) == 1) || ((strlen(entry->d_name) == 2) && (entry->d_name[0] == '.') && (entry->d_name[1] == '.')))
         continue;
       
@@ -71,12 +71,13 @@ int encrypt_files(const char* path, char key) {
 	    }
       }
     }
-    free(abs_path);
   }
   return status;
 }
 
 int main(int argc, char* argv[]) {
+  signal(SIGINT, signal_handler);
+
   int ret = 0;
   /* Check cmd params*/
   if (argc != 3) {
@@ -85,5 +86,7 @@ int main(int argc, char* argv[]) {
   }
   ret = encrypt_files(argv[1], (char)atoi(argv[2]));
   printf("encrypting finished with code %d\n", ret);
+
+  usleep(10000);
   return ret;
 }
