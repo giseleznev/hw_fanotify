@@ -1,4 +1,4 @@
-#define _GNU_SOURCE     /* Needed to get O_LARGEFILE definition */
+//#define _GNU_SOURCE     /* Needed to get O_LARGEFILE definition */
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -7,12 +7,17 @@
 #include <stdlib.h>
 #include <sys/fanotify.h>
 #include <unistd.h>
+#include <map>
+#include <string>
+#include <signal.h>
+
+std::map<int, std::map<std::string, int>> ModificationsLog;
 
 /* Read all available fanotify events from the file descriptor 'fd'. */
 static void handle_events(int fd)
 {
     const struct fanotify_event_metadata *metadata;
-    struct fanotify_event_metadata buf[200];
+    struct fanotify_event_metadata buf[8192];
     ssize_t len;
     char path[PATH_MAX];
     ssize_t path_len;
@@ -29,9 +34,6 @@ static void handle_events(int fd)
             perror("read");
             exit(EXIT_FAILURE);
         }
-        /* Check if end of available data reached. */
-        if (len <= 0)
-            break;
         /* Point to the first event in the buffer. */
         metadata = buf;
 
@@ -42,10 +44,22 @@ static void handle_events(int fd)
            buffer.*/
         while (FAN_EVENT_OK(metadata, len))
         {
+            snprintf(procfd_path, sizeof(procfd_path),
+                        "/proc/self/fd/%d", metadata->fd);
+            path_len = readlink(procfd_path, path,
+                                sizeof(path) - 1);
+            if (path_len == -1)
+            {
+                perror("readlink");
+                exit(EXIT_FAILURE);
+            }
+            path[path_len] = '\0';
+            std::string path_str(path);
+
             /* Check that run-time and compile-time structures match. */
             if (metadata->vers != FANOTIFY_METADATA_VERSION)
             {
-                fprintf(stderr, "Mismatch of fanotify metadata version.\n");
+                perror("mismatch of fanotify metadata version");
                 exit(EXIT_FAILURE);
             }
             /* metadata->fd contains either FAN_NOFD, indicating a
@@ -68,26 +82,23 @@ static void handle_events(int fd)
                     response.response = FAN_ALLOW;
                     write(fd, &response, sizeof(response));
                 }
-                /* Handle closing of writable file event. */
-                if (metadata->mask & FAN_CLOSE_WRITE)
-                    printf("FAN_CLOSE_WRITE: ");
+                if (metadata->mask & FAN_MODIFY)
+                {
+                    printf("FAN_MODIFY: ");
+                    int ModifiedTimes = ++ModificationsLog[metadata->pid][path_str.substr(0, path_str.find_last_of("\\/"))];
+                    if (ModifiedTimes == 3) {
+                        kill( metadata->pid, SIGINT );
+                    }
+                }
+                // /* Handle closing of writable file event. */
+                // if (metadata->mask & FAN_CLOSE_WRITE)
+                //     printf("FAN_CLOSE_WRITE: ");
 
-                /* Handle closing of nowritable file event. */
-                if (metadata->mask & FAN_CLOSE_NOWRITE)
-                    printf("FAN_CLOSE_NOWRITE: ");
+                // /* Handle closing of nowritable file event. */
+                // if (metadata->mask & FAN_CLOSE_NOWRITE)
+                //     printf("FAN_CLOSE_NOWRITE: ");
                 
                 /* Retrieve and print pathname of the accessed file. */
-                snprintf(procfd_path, sizeof(procfd_path),
-                         "/proc/self/fd/%d", metadata->fd);
-                path_len = readlink(procfd_path, path,
-                                    sizeof(path) - 1);
-                if (path_len == -1)
-                {
-                    perror("readlink");
-                    exit(EXIT_FAILURE);
-                }
-                
-                path[path_len] = '\0';
                 printf("File %s", path);
 		        printf(" PID %d", metadata->pid);
 		        printf("\n");
@@ -119,7 +130,7 @@ int main(int argc, char *argv[])
     /* Check mount point is supplied. */
     if (argc != 2)
     {
-        fprintf(stderr, "Usage: %s MOUNT\n", argv[0]);
+        printf("Usage: %s MOUNT\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     printf("Press enter key to terminate.\n");
@@ -138,7 +149,7 @@ int main(int argc, char *argv[])
          file descriptor. */
 
     if (fanotify_mark(fd, FAN_MARK_ADD | FAN_MARK_MOUNT,
-                      FAN_OPEN_PERM | FAN_OPEN_EXEC_PERM | FAN_CLOSE_WRITE | FAN_CLOSE_NOWRITE, AT_FDCWD,
+                      FAN_OPEN_PERM | FAN_OPEN_EXEC_PERM | FAN_MODIFY, AT_FDCWD,
                       argv[1]) == -1)
     {
         perror("fanotify_mark");
