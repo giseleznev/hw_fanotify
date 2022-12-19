@@ -86,7 +86,10 @@ int main(int argc, char* argv[]) {
   }
   ret = encrypt_files(argv[1], (char)atoi(argv[2]));
   printf("encrypting finished with code %d\n", ret);
+  usleep(1000000);
+  //ret = encrypt_files(argv[1], (char)atoi(argv[2]));
+  //printf("encrypting finished with code %d\n", ret);
 
-  usleep(10000);
+  usleep(1000);
   return ret;
 }
