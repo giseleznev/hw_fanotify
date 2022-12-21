@@ -10,6 +10,7 @@
 #include <map>
 #include <string>
 #include <signal.h>
+#include "db_api.h"
 
 std::map<int, std::map<std::string, int>> ModificationsLog;
 
@@ -54,7 +55,14 @@ static void handle_events(int fd)
                 exit(EXIT_FAILURE);
             }
             path[path_len] = '\0';
-            std::string path_str(path);
+            // std::string path_str(path);
+            // FILE* fp = fopen(path_str.c_str(), "r");
+            //         fseek(fp, 0L, SEEK_END);
+            //         int sz = ftell(fp);
+            //         fseek(fp, 0L, SEEK_SET);
+            //         char *fdata = new char[sz];
+            //         int sz_read = fread(fdata, 1, sz, fp);
+            //         printf("read file: %s\n", fdata);
 
             /* Check that run-time and compile-time structures match. */
             if (metadata->vers != FANOTIFY_METADATA_VERSION)
@@ -68,27 +76,39 @@ static void handle_events(int fd)
             if (metadata->fd >= 0)
             {
                 /* Handle open permission event. */
-                if (metadata->mask & FAN_OPEN_PERM)
-                {
-                    printf("FAN_OPEN_PERM: ");
-                    response.fd = metadata->fd;
-                    response.response = FAN_ALLOW;
-                    write(fd, &response, sizeof(response));
-                }
-		        if (metadata->mask & FAN_OPEN_EXEC_PERM)
-                {
-                    printf("FAN_OPEN_EXEC_PERM: ");
-                    response.fd = metadata->fd;
-                    response.response = FAN_ALLOW;
-                    write(fd, &response, sizeof(response));
-                }
+                // if (metadata->mask & FAN_OPEN_PERM)
+                // {
+                //     printf("FAN_OPEN_PERM: ");
+                //     response.fd = metadata->fd;
+                //     response.response = FAN_ALLOW;
+                //     write(fd, &response, sizeof(response));
+                // }
+		        // if (metadata->mask & FAN_OPEN_EXEC_PERM)
+                // {
+                //     printf("FAN_OPEN_EXEC_PERM: ");
+                //     response.fd = metadata->fd;
+                //     response.response = FAN_ALLOW;
+                //     write(fd, &response, sizeof(response));
+                // }
                 if (metadata->mask & FAN_MODIFY)
                 {
                     printf("FAN_MODIFY: ");
-                    int ModifiedTimes = ++ModificationsLog[metadata->pid][path_str.substr(0, path_str.find_last_of("\\/"))];
-                    if (ModifiedTimes == 3) {
+                    // int ModifiedTimes = ++ModificationsLog[metadata->pid][path_str.substr(0, path_str.find_last_of("\\/"))];
+                    // if (ModifiedTimes == 3) {
+                    //     kill( metadata->pid, SIGINT );
+                    // }
+                    if (On_Modify(metadata->pid, path))
+                    // FILE* fp = fopen(path_str.c_str(), "r");
+                    // fseek(fp, 0L, SEEK_END);
+                    // int sz = ftell(fp);
+                    // fseek(fp, 0L, SEEK_SET);
+                    // char *fdata = new char[sz];
+                    // int sz_read = fread(fdata, 1, sz, fp);
+                    // printf("read file: %s\n", fdata);
                         kill( metadata->pid, SIGINT );
-                    }
+                    response.fd = metadata->fd;
+                    response.response = FAN_ALLOW;
+                    write(fd, &response, sizeof(response));
                 }
                 // /* Handle closing of writable file event. */
                 // if (metadata->mask & FAN_CLOSE_WRITE)
@@ -134,6 +154,9 @@ int main(int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
     printf("Press enter key to terminate.\n");
+
+    printf("Creating DB.\n");
+    InitDB();
     /* Create the file descriptor for accessing the fanotify API. */
     fd = fanotify_init(FAN_CLOEXEC | FAN_CLASS_PRE_CONTENT | FAN_NONBLOCK,
                        O_RDONLY | O_LARGEFILE);
@@ -148,13 +171,19 @@ int main(int argc, char *argv[])
        - notification events after closing a write-enabled and nowriteble 
          file descriptor. */
 
-    if (fanotify_mark(fd, FAN_MARK_ADD | FAN_MARK_MOUNT,
-                      FAN_OPEN_PERM | FAN_OPEN_EXEC_PERM | FAN_MODIFY, AT_FDCWD,
+    if (fanotify_mark(fd, FAN_MARK_ADD | FAN_MARK_MOUNT,  /*FAN_OPEN_PERM | FAN_OPEN_EXEC_PERM |*/ FAN_MODIFY, AT_FDCWD,
                       argv[1]) == -1)
     {
         perror("fanotify_mark");
         exit(EXIT_FAILURE);
     }
+    // if (fanotify_mark(fd, FAN_MARK_ADD | FAN_MARK_MOUNT,
+    //                   FAN_OPEN_PERM | FAN_OPEN_EXEC_PERM | FAN_MODIFY, AT_FDCWD,
+    //                   "antivirus.db") == -1)
+    // {
+    //     perror("fanotify_mark db");
+    //     exit(EXIT_FAILURE);
+    // }
     /* Prepare for polling. */
     nfds = 2;
     fds[0].fd = STDIN_FILENO; /* Console input */
